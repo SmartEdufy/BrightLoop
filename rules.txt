@@ -1,0 +1,97 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- HELPER FUNCTIONS ---
+
+    // Checks if the logged-in user is the Super Admin.
+    function isSuperAdmin() {
+      return request.auth.token.email == 'hikhansajad@gmail.com';
+    }
+
+    // Retrieves the user's profile data.
+    function getUserProfile(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    // Checks if the current user is an approved admin for a specific school.
+    function isSchoolAdmin(schoolId) {
+      let userProfile = getUserProfile(request.auth.uid);
+      return request.auth != null &&
+             userProfile.role == 'SCHOOL_ADMIN' &&
+             userProfile.isApproved == true &&
+             userProfile.schoolId == schoolId;
+    }
+
+    // --- COLLECTION RULES ---
+
+    // SYSTEM SETTINGS
+    match /system_settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
+    }
+
+    // USERS
+    match /users/{userId} {
+      allow read, write: if isSuperAdmin();
+      allow get: if request.auth.uid == userId;
+      
+      allow create: if request.auth.uid == userId &&
+                       request.resource.data.uid == userId &&
+                       request.resource.data.role == 'SCHOOL_ADMIN';
+                       
+      allow update: if request.auth.uid == userId &&
+                       request.resource.data.uid == resource.data.uid;
+    }
+
+    // SCHOOLS
+    match /schools/{schoolId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() || 
+                      (request.auth != null && request.resource.data.ownerUid == request.auth.uid) || 
+                      (resource.data.ownerUid == request.auth.uid);
+    }
+
+    // STUDENTS
+    match /students/{studentId} {
+      allow read, write: if isSuperAdmin();
+      
+      allow read, delete: if isSchoolAdmin(resource.data.schoolId);
+      allow create: if isSchoolAdmin(request.resource.data.schoolId);
+      allow update: if isSchoolAdmin(resource.data.schoolId) && 
+                       isSchoolAdmin(request.resource.data.schoolId);
+    }
+
+    // ADMISSION FORMS
+    match /admission_forms/{formId} {
+      allow read, write: if isSuperAdmin();
+      
+      // Allow School Admins to read/delete their own forms
+      allow read, delete: if isSchoolAdmin(resource.data.schoolId);
+      
+      // Allow School Admins to create forms for their school
+      allow create: if isSchoolAdmin(request.resource.data.schoolId);
+      
+      // Allow School Admins to update forms for their school
+      allow update: if isSchoolAdmin(resource.data.schoolId) && 
+                       isSchoolAdmin(request.resource.data.schoolId);
+    }
+
+    // ROLL STATEMENTS
+    match /roll_statements/{stmtId} {
+      allow read, write: if isSuperAdmin();
+      
+      // Allow School Admins to read/delete their own statements
+      allow read, delete: if isSchoolAdmin(resource.data.schoolId);
+      
+      // Allow School Admins to create statements for their school
+      allow create: if isSchoolAdmin(request.resource.data.schoolId);
+      
+      // Allow School Admins to update statements for their school
+      allow update: if isSchoolAdmin(resource.data.schoolId) && 
+                       isSchoolAdmin(request.resource.data.schoolId);
+    }
+  }
+}
